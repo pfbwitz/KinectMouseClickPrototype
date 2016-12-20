@@ -1,0 +1,14 @@
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\bin\AnyCPU\Debug\KinectMouseClickPrototype.exe.config
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\bin\AnyCPU\Debug\KinectMouseClickPrototype.exe
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\bin\AnyCPU\Debug\KinectMouseClickPrototype.pdb
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\bin\AnyCPU\Debug\Microsoft.Kinect.dll
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\bin\AnyCPU\Debug\Microsoft.Kinect.xml
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\MainWindow.baml
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\MainWindow.g.cs
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\App.g.cs
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\KinectMouseClickPrototype_MarkupCompile.cache
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\KinectMouseClickPrototype.g.resources
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\KinectMouseClickPrototype.Properties.Resources.resources
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\KinectMouseClickPrototype.csproj.GenerateResource.Cache
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\KinectMouseClickPrototype.exe
+C:\Users\pbr.Q-RAYNET\Documents\Projects\KinectMouseClickPrototype\obj\Debug\KinectMouseClickPrototype.pdb
