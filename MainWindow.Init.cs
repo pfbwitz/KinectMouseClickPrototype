@@ -69,6 +69,13 @@ namespace KinectMouseClickPrototype
                 _bodyFrameReader = null;
             }
 
+            if (_depthFrameReader != null)
+            {
+                // DepthFrameReader is IDisposable
+                _depthFrameReader.Dispose();
+                _depthFrameReader = null;
+            }
+
             if (_kinectSensor != null)
             {
                 _kinectSensor.Close();

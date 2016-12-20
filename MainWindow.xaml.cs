@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using KinectMouseClickPrototype.Enums;
 using Microsoft.Kinect;
 
@@ -16,13 +17,29 @@ namespace KinectMouseClickPrototype
         [DllImport("User32.dll")]
         private static extern bool SetCursorPos(int X, int Y);
 
+        #region constants
+
+        private const int MapDepthToByte = 8000 / 256; // Map depth range to byte range
+
+        #endregion
+
         #region private properties
 
         //Peter
         private bool _isLeftHeldDown;
 
         private bool _isRightDown;
+
+        private Point? _handPosition;
         //EndPeter
+
+        private DepthFrameReader _depthFrameReader; // Reader for depth frames
+
+        private readonly FrameDescription _depthFrameDescription; // Description of the data contained in the depth frame
+
+        private readonly WriteableBitmap _depthBitmap; // Bitmap to display
+
+        private readonly byte[] _depthPixels; // Intermediate storage for frame data converted to color
 
         private const double HandSize = 30; // Radius of drawn hand circles
 
@@ -47,6 +64,14 @@ namespace KinectMouseClickPrototype
         private readonly DrawingGroup _drawingGroup; // Drawing group for body rendering output
 
         private readonly DrawingImage _imageSource; // Drawing image that we will display
+
+        private ImageSource _imageSourceDepth
+        {
+            get
+            {
+                return _depthBitmap;
+            }
+        }
 
         private KinectSensor _kinectSensor; // Active Kinect sensor
 
@@ -75,6 +100,7 @@ namespace KinectMouseClickPrototype
         /// <summary>
         /// Gets the bitmap to display
         /// </summary>
+        public ImageSource ImageSourceDepth { get { return _imageSourceDepth; } }
         public ImageSource ImageSource { get { return _imageSource; } }
 
         /// <summary>
@@ -107,6 +133,19 @@ namespace KinectMouseClickPrototype
             _kinectSensor = KinectSensor.GetDefault(); // one sensor is currently supported
             _coordinateMapper = _kinectSensor.CoordinateMapper;   // get the coordinate mapper
 
+            _depthFrameReader = _kinectSensor.DepthFrameSource.OpenReader();
+
+
+
+            _depthFrameReader.FrameArrived += DepthReader_FrameArrived;  // wire handler for frame arrival
+            _depthFrameDescription = _kinectSensor.DepthFrameSource.FrameDescription; // get FrameDescription from DepthFrameSource
+
+            // allocate space to put the pixels being received and converted
+            _depthPixels = new byte[_depthFrameDescription.Width * _depthFrameDescription.Height];
+
+            // create the bitmap to display
+            _depthBitmap = new WriteableBitmap(_depthFrameDescription.Width, _depthFrameDescription.Height, 96.0, 96.0, PixelFormats.Gray8, null);
+
             // get the depth (display) extents
             _displayWidth = _kinectSensor.DepthFrameSource.FrameDescription.Width; // get size of joint space
             _displayHeight = _kinectSensor.DepthFrameSource.FrameDescription.Height; // get size of joint space
@@ -124,7 +163,9 @@ namespace KinectMouseClickPrototype
 
             _drawingGroup = new DrawingGroup();  // Create the drawing group we'll use for drawing
 
-
+            //_drawingGroup.Children.Add(new ImageDrawing(_depthBitmap);
+            //_drawingGroup.Children.Add(new ImageDrawing(new BitmapImage(new Uri(@"...\Some.png", UriKind.Absolute)), new Rect(0, 0, ??, ??)));
+            
             _imageSource = new DrawingImage(_drawingGroup);  // Create an image source that we can use in our image control
 
             DataContext = this;    // use the window object as the view model in this simple example
@@ -238,6 +279,96 @@ namespace KinectMouseClickPrototype
                 Properties.Resources.RunningStatusText : Properties.Resources.SensorNotAvailableStatusText;
         }
 
+
+        /// <summary>
+        /// Handles the depth frame data arriving from the sensor
+        /// </summary>
+        /// <param name="sender">object sending the event</param>
+        /// <param name="e">event arguments</param>
+        private void DepthReader_FrameArrived(object sender, DepthFrameArrivedEventArgs e)
+        {
+            bool depthFrameProcessed = false;
+
+            using (DepthFrame depthFrame = e.FrameReference.AcquireFrame())
+            {
+                if (depthFrame != null)
+                {
+                    // the fastest way to process the body index data is to directly access 
+                    // the underlying buffer
+                    using (var depthBuffer = depthFrame.LockImageBuffer())
+                    {
+                        // verify data and write the color data to the display bitmap
+                        if (((_depthFrameDescription.Width * _depthFrameDescription.Height) == (depthBuffer.Size / _depthFrameDescription.BytesPerPixel)) &&
+                            (_depthFrameDescription.Width == _depthBitmap.PixelWidth) && (_depthFrameDescription.Height == _depthBitmap.PixelHeight))
+                        {
+                            if (_handPosition.HasValue)
+                            {
+                                var x = _handPosition.Value.X;
+                                var y = _handPosition.Value.Y;
+
+                                
+                            }
+
+                            // Note: In order to see the full range of depth (including the less reliable far field depth)
+                            // we are setting maxDepth to the extreme potential depth threshold
+                            ushort maxDepth = ushort.MaxValue;
+
+                            // If you wish to filter by reliable depth distance, uncomment the following line:
+                            //// maxDepth = depthFrame.DepthMaxReliableDistance
+
+                            ProcessDepthFrameData(depthBuffer.UnderlyingBuffer, depthBuffer.Size, depthFrame.DepthMinReliableDistance, maxDepth);
+                            depthFrameProcessed = true;
+                        }
+                    }
+                }
+            }
+
+            if (depthFrameProcessed)
+            {
+                RenderDepthPixels();
+            }
+        }
+
+        /// <summary>
+        /// Renders color pixels into the writeableBitmap.
+        /// </summary>
+        private void RenderDepthPixels()
+        {
+            _depthBitmap.WritePixels(
+                new Int32Rect(0, 0, _depthBitmap.PixelWidth, _depthBitmap.PixelHeight),
+                _depthPixels,
+                _depthBitmap.PixelWidth,
+                0);
+        }
+
+
+        /// <summary>
+        /// Directly accesses the underlying image buffer of the DepthFrame to 
+        /// create a displayable bitmap.
+        /// This function requires the /unsafe compiler option as we make use of direct
+        /// access to the native memory pointed to by the depthFrameData pointer.
+        /// </summary>
+        /// <param name="depthFrameData">Pointer to the DepthFrame image data</param>
+        /// <param name="depthFrameDataSize">Size of the DepthFrame image data</param>
+        /// <param name="minDepth">The minimum reliable depth value for the frame</param>
+        /// <param name="maxDepth">The maximum reliable depth value for the frame</param>
+        private unsafe void ProcessDepthFrameData(IntPtr depthFrameData, uint depthFrameDataSize, ushort minDepth, ushort maxDepth)
+        {
+            // depth frame data is a 16 bit value
+            ushort* frameData = (ushort*)depthFrameData;
+
+            // convert depth to a visual representation
+            for (int i = 0; i < (int)(depthFrameDataSize / _depthFrameDescription.BytesPerPixel); ++i)
+            {
+                // Get the depth for this pixel
+                ushort depth = frameData[i];
+
+                // To convert to a byte, we're mapping the depth value to the byte range.
+                // Values outside the reliable depth range are mapped to 0 (black).
+                _depthPixels[i] = (byte)(depth >= minDepth && depth <= maxDepth ? (depth / MapDepthToByte) : 0);
+            }
+        }
+
         #endregion
 
         #region methods
@@ -310,9 +441,12 @@ namespace KinectMouseClickPrototype
         /// <param name="drawingContext">drawing context to draw to</param>
         private void DrawHand(HandType handType, HandState handState, Point handPosition, DrawingContext drawingContext)
         {
-           if(handType == HandType.Left)
-               tbTop.Text = "X: " + handPosition.X + ", Y: " + handPosition.Y;
-
+            if (handType == HandType.Left)
+            {
+                _handPosition = handPosition;
+                tbTop.Text = "X: " + Convert.ToInt32(handPosition.X) + ", Y: " + Convert.ToInt32(handPosition.Y);
+            }
+            
             switch (handState)
             {
                 case HandState.Closed:
@@ -393,8 +527,6 @@ namespace KinectMouseClickPrototype
 
         #region mouse controls
 
-     
-
         private void LeftDown()
         {
             _isLeftHeldDown = true;
@@ -425,7 +557,7 @@ namespace KinectMouseClickPrototype
             //var screenWidth = System.Windows.SystemParameters.PrimaryScreenWidth;
             //var screenHeight = System.Windows.SystemParameters.PrimaryScreenHeight;
 
-            var factor = 4;
+            var factor = 6;
 
             //var xL = (int)App.Current.MainWindow.Left;
             //var yT = (int)App.Current.MainWindow.Top;
