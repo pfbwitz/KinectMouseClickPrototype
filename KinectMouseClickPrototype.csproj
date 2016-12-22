@@ -80,6 +80,7 @@
       <DependentUpon>App.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="DepthPoint.cs" />
     <Compile Include="Enums\HandType.cs" />
     <Compile Include="MainWindow.Init.cs" />
     <Compile Include="MainWindow.xaml.cs">
