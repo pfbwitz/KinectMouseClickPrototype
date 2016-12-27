@@ -1,16 +1,16 @@
 ﻿using System.Windows;
 
-namespace KinectMouseClickPrototype
+namespace KinectMouseClickPrototype.Kinect
 {
     public class DepthPoint
     {
-        public int X { get; set; }
+        public float X { get; set; }
 
-        public int Y { get; set; }
+        public float Y { get; set; }
 
-        public int Z { get; set; }
+        public float Z { get; set; }
 
-        public DepthPoint(int x, int y, int z)
+        public DepthPoint(float x, float y, float z)
         {
             X = x;
             Y = y;

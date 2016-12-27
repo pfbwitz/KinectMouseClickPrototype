@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace KinectMouseClickPrototype
+namespace KinectMouseClickPrototype.Cursor
 {
     public class LongClickArgs : EventArgs
     {

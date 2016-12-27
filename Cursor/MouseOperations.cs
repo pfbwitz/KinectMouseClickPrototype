@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 
-namespace KinectMouseClickPrototype
+namespace KinectMouseClickPrototype.Cursor
 {
     public class MouseOperations
     {

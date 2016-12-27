@@ -50,11 +50,15 @@
     <SignAssembly>false</SignAssembly>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Fleck">
+      <HintPath>.\Fleck.dll</HintPath>
+    </Reference>
     <Reference Include="Microsoft.Kinect">
       <HintPath>$(KINECTSDK20_DIR)Assemblies\Microsoft.Kinect.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Data" />
+    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Xml" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Core" />
@@ -80,8 +84,10 @@
       <DependentUpon>App.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="DepthPoint.cs" />
+    <Compile Include="Cursor\CursorData.cs" />
+    <Compile Include="Kinect\DepthPoint.cs" />
     <Compile Include="Enums\HandType.cs" />
+    <Compile Include="Cursor\LongClickArgs.cs" />
     <Compile Include="MainWindow.Init.cs" />
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
@@ -89,7 +95,8 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="MouseOperations.cs" />
+    <Compile Include="Cursor\MouseOperations.cs" />
+    <Compile Include="PixelHelper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>

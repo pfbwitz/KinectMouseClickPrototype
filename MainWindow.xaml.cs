@@ -1,28 +1,102 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Input;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
+using Fleck;
+using KinectMouseClickPrototype.Cursor;
 using KinectMouseClickPrototype.Enums;
+using KinectMouseClickPrototype.Kinect;
 using Microsoft.Kinect;
 
 namespace KinectMouseClickPrototype
 {
     public partial class MainWindow :  INotifyPropertyChanged
     {
+
+//        topright:
+//X = 347
+//Y= 143
+//Z = 2372
+
+//bottomleft:
+//X = 226
+//Y = 227
+//Z = 2132
+
+//347 - 226 = 121 cm width
+//84 cm height
+
+//widthFactor 1920 / 121 = 15.87
+//heightFactor = 1080 / 84 = 12.86
+
+//(276-226) * 16 = 793,5px 
+//(measuredx-zerox) * xrealuation - 
+
         [DllImport("User32.dll")]
         private static extern bool SetCursorPos(int X, int Y);
+
+        #region screen configuration
+
+        private double _zLeft;
+
+        private double _zRight;
+
+        private bool _doneCalibrating;
+
+        private bool _calibratingTopLeft;
+
+        private bool _calibratingBottomRight;
+
+        private bool _calibrating;
+
+        public Point ScreenTopLeft{ get; set; }
+
+        public Point ScreenTopRight
+        {
+            get
+            {
+                return new Point(ScreenBottomRight.X, ScreenTopLeft.Y);
+            }
+        }
+
+        public Point ScreenBottomRight { get; set; }
+
+        public Point ScreenBottomLeft
+        {
+            get
+            {
+                return new Point(ScreenTopLeft.X, ScreenBottomRight.Y);
+            }
+        }
+
+        public double WallZ
+        {
+            get { return (_zLeft + _zRight)/2; }
+        }
+
+        public double ScreenWidth
+        {
+            get { return ScreenTopLeft.X - ScreenBottomRight.X; }
+        }
+
+        public double ScreenHeight
+        {
+            get { return ScreenBottomRight.Y - ScreenTopLeft.Y; }
+        }
+
+       
+
+        #endregion
 
         #region constants
 
         private const int MapDepthToByte = 8000 / 256; // Map depth range to byte range
-
-        private const int MouseSpeed = 100;
 
         #endregion
 
@@ -31,7 +105,7 @@ namespace KinectMouseClickPrototype
         //Peter
         private bool _isLeftHeldDown;
 
-        private bool _isRightDown;
+        private bool _isRightHeldDown;
 
         //EndPeter
 
@@ -43,7 +117,7 @@ namespace KinectMouseClickPrototype
 
         private readonly byte[] _depthPixels; // Intermediate storage for frame data converted to color
 
-        private const double HandSize = 30; // Radius of drawn hand circles
+        private const double HandSize = 5; // Radius of drawn hand circles
 
         private const double JointThickness = 3; // Thickness of drawn joint lines
 
@@ -97,6 +171,21 @@ namespace KinectMouseClickPrototype
 
         #region public properties
 
+        private string _buttonText = "Start calibration";
+
+        public string ButtonText
+        {
+            get { return _buttonText; }
+            set
+            {
+                _buttonText = value;
+                if (PropertyChanged != null)
+                    PropertyChanged(this, new PropertyChangedEventArgs("ButtonText"));
+            }
+        }
+
+
+
         public event PropertyChangedEventHandler PropertyChanged;
 
         /// <summary>
@@ -138,9 +227,6 @@ namespace KinectMouseClickPrototype
             _coordinateMapper = _kinectSensor.CoordinateMapper;   // get the coordinate mapper
 
             _depthFrameReader = _kinectSensor.DepthFrameSource.OpenReader();
-
-
-
             _depthFrameReader.FrameArrived += DepthReader_FrameArrived;  // wire handler for frame arrival
             _depthFrameDescription = _kinectSensor.DepthFrameSource.FrameDescription; // get FrameDescription from DepthFrameSource
 
@@ -156,6 +242,7 @@ namespace KinectMouseClickPrototype
 
             _bodyFrameReader = _kinectSensor.BodyFrameSource.OpenReader();  // open the reader for the body frames
 
+            InitializeSockets();
             InitBones();
             InitBodyColors();
 
@@ -164,11 +251,7 @@ namespace KinectMouseClickPrototype
 
             StatusText = _kinectSensor.IsAvailable ? Properties.Resources.RunningStatusText : Properties.Resources.NoSensorStatusText;
 
-
             _drawingGroup = new DrawingGroup();  // Create the drawing group we'll use for drawing
-
-            //_drawingGroup.Children.Add(new ImageDrawing(_depthBitmap);
-            //_drawingGroup.Children.Add(new ImageDrawing(new BitmapImage(new Uri(@"...\Some.png", UriKind.Absolute)), new Rect(0, 0, ??, ??)));
             
             _imageSource = new DrawingImage(_drawingGroup);  // Create an image source that we can use in our image control
 
@@ -180,6 +263,41 @@ namespace KinectMouseClickPrototype
         #endregion
 
         #region handlers
+
+        private void FinishButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_calibrating)
+            {
+                ButtonText = "Calibrating topleft";
+                var messageBoxResult = MessageBox.Show("Touch top-left", string.Empty, MessageBoxButton.YesNo);
+                if (messageBoxResult == MessageBoxResult.Yes)
+                    _calibrating = _calibratingTopLeft = true;
+                else
+                    Application.Current.Shutdown();
+            }
+            else
+            {
+                if (_calibratingTopLeft)
+                {
+                    ButtonText = "Calibrating bottomright";
+                    _calibratingTopLeft = false;
+
+                    var messageBoxResult = MessageBox.Show("Touch bottom-right", string.Empty, MessageBoxButton.YesNo);
+                    if (messageBoxResult == MessageBoxResult.Yes)
+                        _calibratingBottomRight = true;
+                    else
+                        Application.Current.Shutdown();
+                }
+                else if (_calibratingBottomRight)
+                {
+                    _calibratingBottomRight = false;
+                    var btn = (Button)sender;
+                    btn.Visibility = Visibility.Hidden;
+                    _calibrating = false;
+                    _doneCalibrating = true;
+                }
+            }
+        }
 
         /// <summary>
         /// Execute start up tasks
@@ -232,13 +350,10 @@ namespace KinectMouseClickPrototype
                 using (var dc = _drawingGroup.Open())
                 {
                     // Draw a transparent background to set the render size
-                    dc.DrawRectangle(Brushes.Black, null, new Rect(0.0, 0.0, _displayWidth, _displayHeight));
+                    dc.DrawRectangle(Brushes.Transparent, null, new Rect(0.0, 0.0, _displayWidth, _displayHeight));
 
-                    var penIndex = 0;
                     foreach (var body in _bodies)
                     {
-                        Pen drawPen = _bodyColors[penIndex++];
-
                         if (body.IsTracked)
                         {
                             DrawClippedEdges(body, dc);
@@ -257,13 +372,11 @@ namespace KinectMouseClickPrototype
                                     position.Z = InferredZPositionClamp;
                                 
                                 var depthSpacePoint = _coordinateMapper.MapCameraPointToDepthSpace(position);
-                                jointPoints[jointType] = new DepthPoint((int) depthSpacePoint.X, (int) depthSpacePoint.Y, (int) (position.Z * 1000));
+                                jointPoints[jointType] = new DepthPoint(depthSpacePoint.X, depthSpacePoint.Y, (position.Z * 1000));
                             }
 
-                            DrawBody(joints, jointPoints, dc, drawPen);
-                           
-                            DrawHand(HandType.Left, body.HandLeftState, jointPoints[JointType.HandLeft], dc);
-                            DrawHand(HandType.Right, body.HandRightState, jointPoints[JointType.HandRight], dc);
+                            DrawHand(HandType.Left, jointPoints[JointType.HandTipLeft], dc);
+                            DrawHand(HandType.Right, jointPoints[JointType.HandTipRight], dc);
                         }
                     }
 
@@ -339,17 +452,6 @@ namespace KinectMouseClickPrototype
                 0);
         }
 
-
-        /// <summary>
-        /// Directly accesses the underlying image buffer of the DepthFrame to 
-        /// create a displayable bitmap.
-        /// This function requires the /unsafe compiler option as we make use of direct
-        /// access to the native memory pointed to by the depthFrameData pointer.
-        /// </summary>
-        /// <param name="depthFrameData">Pointer to the DepthFrame image data</param>
-        /// <param name="depthFrameDataSize">Size of the DepthFrame image data</param>
-        /// <param name="minDepth">The minimum reliable depth value for the frame</param>
-        /// <param name="maxDepth">The maximum reliable depth value for the frame</param>
         private unsafe void ProcessDepthFrameData(IntPtr depthFrameData, uint depthFrameDataSize, ushort minDepth, ushort maxDepth)
         {
             // depth frame data is a 16 bit value
@@ -371,113 +473,69 @@ namespace KinectMouseClickPrototype
 
         #region methods
 
-        /// <summary>
-        /// Draws a body
-        /// </summary>
-        /// <param name="joints">joints to draw</param>
-        /// <param name="jointPoints">translated positions of joints to draw</param>
-        /// <param name="drawingContext">drawing context to draw to</param>
-        /// <param name="drawingPen">specifies color to draw a specific body</param>
-        private void DrawBody(IReadOnlyDictionary<JointType, Joint> joints, Dictionary<JointType, DepthPoint> jointPoints, DrawingContext drawingContext, Pen drawingPen)
+        private readonly List<double> avgX = new List<double>();
+        private readonly List<double> avgY = new List<double>();
+
+        private void DrawHand(HandType handType, DepthPoint handPosition, DrawingContext drawingContext)
         {
-            // Draw the bones
-            foreach (var bone in _bones)
-                DrawBone(joints, jointPoints, bone.Item1, bone.Item2, drawingContext, drawingPen);
+            var xInMillimeters = handPosition.X;
+            var yInMillimeters = handPosition.Y;
 
-
-            // Draw the joints
-            foreach (var jointType in joints.Keys)
+            if (_calibrating)
             {
-                Brush drawBrush = null;
-
-                var trackingState = joints[jointType].TrackingState;
-
-                if (trackingState == TrackingState.Tracked)
-                    drawBrush = _trackedJointBrush;
-                else if (trackingState == TrackingState.Inferred)
-                    drawBrush = _inferredJointBrush;
-
-                if (drawBrush != null)
-                    drawingContext.DrawEllipse(drawBrush, null, jointPoints[jointType].GetPoint(), JointThickness, JointThickness);
-            }
-        }
-
-        /// <summary>
-        /// Draws one bone of a body (joint to joint)
-        /// </summary>
-        /// <param name="joints">joints to draw</param>
-        /// <param name="jointPoints">translated positions of joints to draw</param>
-        /// <param name="jointType0">first joint of bone to draw</param>
-        /// <param name="jointType1">second joint of bone to draw</param>
-        /// <param name="drawingContext">drawing context to draw to</param>
-        /// /// <param name="drawingPen">specifies color to draw a specific bone</param>
-        private void DrawBone(IReadOnlyDictionary<JointType, Joint> joints, IDictionary<JointType, DepthPoint> jointPoints, JointType jointType0, JointType jointType1, DrawingContext drawingContext, Pen drawingPen)
-        {
-            var joint0 = joints[jointType0];
-            var joint1 = joints[jointType1];
-
-            // If we can't find either of these joints, exit
-            if (joint0.TrackingState == TrackingState.NotTracked ||
-                joint1.TrackingState == TrackingState.NotTracked)
-            {
-                return;
+                if (handType == HandType.Right && _calibratingTopLeft)
+                {
+                    ScreenTopLeft = new Point(xInMillimeters, yInMillimeters);
+                    _zLeft = handPosition.Z;
+                }
+                else if (handType == HandType.Left && _calibratingBottomRight)
+                {
+                    ScreenBottomRight = new Point(xInMillimeters, yInMillimeters);
+                    _zRight = handPosition.Z;
+                }
             }
 
-            // We assume all drawn bones are inferred unless BOTH joints are tracked
-            var drawPen = _inferredBonePen;
-            if ((joint0.TrackingState == TrackingState.Tracked) && (joint1.TrackingState == TrackingState.Tracked))
-                drawPen = drawingPen;
-
-            drawingContext.DrawLine(drawPen, jointPoints[jointType0].GetPoint(), jointPoints[jointType1].GetPoint());
-        }
-
-        /// <summary>
-        /// Draws a hand symbol if the hand is tracked: red circle = closed, green circle = opened; blue circle = lasso
-        /// </summary>
-        /// <param name="handType"></param>
-        /// <param name="handState">state of the hand</param>
-        /// <param name="handPosition">position of the hand</param>
-        /// <param name="drawingContext">drawing context to draw to</param>
-        /// <param name="joint"></param>
-        private void DrawHand(HandType handType, HandState handState, DepthPoint handPosition, DrawingContext drawingContext)
-        {
-            if (handType == HandType.Left)
+            if (_calibrating)
+                drawingContext.DrawEllipse(_handOpenBrush, null, handPosition.GetPoint(), HandSize, HandSize);
+            else if (_doneCalibrating)
             {
-                tbTop.Text = "X: " + Convert.ToInt32(handPosition.X) + ", Y: " + Convert.ToInt32(handPosition.Y) + ", Z: " + Convert.ToInt32(handPosition.Z);
-            }
-            
-            switch (handState)
-            {
-                case HandState.Closed:
-                    if (handType == HandType.Left)
-                    {
-                        Mouse.OverrideCursor = Cursors.Hand;
-                        SetCursor(Convert.ToInt32(handPosition.X), Convert.ToInt32(handPosition.Y));
-                        drawingContext.DrawEllipse(_handClosedBrush, null, handPosition.GetPoint(), HandSize, HandSize);
-                    }
+                if (handType == HandType.Right)
+                {
+                    var x = PixelHelper.ToPixelsX(xInMillimeters, this);
+                    var y = PixelHelper.ToPixelsY(yInMillimeters, this);
 
-                    if (handType == HandType.Right)
-                    {
-                        if(!_isLeftHeldDown)
-                            LeftDown();
-                    }
-                    break;
-                case HandState.Open:
-                    Mouse.OverrideCursor = Cursors.Arrow;
+                    tbTop.Text = "X: " + Convert.ToInt32(xInMillimeters) + ", Y: " + 
+                        Convert.ToInt32(yInMillimeters) + ", Z: " + Convert.ToInt32(handPosition.Z);
 
-                    if (handType == HandType.Right)
+                    Task.Run(() =>
                     {
-                        if (_isLeftHeldDown)
-                            LeftRelease();
-                    }
+                        avgX.Add(x);
+                        avgY.Add(y);
 
+                        if (avgX.Count > 3)
+                        {
+                           avgX.RemoveAt(0);
+                           avgY.RemoveAt(0);
+                        }
+
+                        var xFinal = avgX.Average();
+                        var yFinal = avgY.Average();
+
+                        Dispatcher.BeginInvoke(new Action(() => SetCursorPos(Convert.ToInt32(xFinal), Convert.ToInt32(yFinal))));
+                    });
+
+                    drawingContext.DrawEllipse(handPosition.Z >= WallZ - 25 ? _handClosedBrush : _handOpenBrush, null, handPosition.GetPoint(), HandSize, HandSize);
+
+                    //if (handPosition.Z >= WallZ - 25 && handType == HandType.Right)
+                    //    LeftDown();
+                    //else if (handType == HandType.Right)
+                    //    LeftRelease();
+                }
+                else
                     drawingContext.DrawEllipse(_handOpenBrush, null, handPosition.GetPoint(), HandSize, HandSize);
-                    break;
-
-                case HandState.Lasso:
-                    drawingContext.DrawEllipse(_handLassoBrush, null, handPosition.GetPoint(), HandSize, HandSize);
-                    break;
             }
+            else if(handType == HandType.Right)
+                drawingContext.DrawEllipse(_handOpenBrush, null, handPosition.GetPoint(), HandSize, HandSize);
         }
 
         /// <summary>
@@ -541,27 +599,14 @@ namespace KinectMouseClickPrototype
 
         private void RightDown()
         {
-            _isRightDown = true;
+            _isRightHeldDown = true;
             MouseOperations.MouseEvent(MouseOperations.MouseEventFlags.RightDown);
         }
 
         private void RightRelease()
         {
-            _isRightDown = false;
+            _isRightHeldDown = false;
             MouseOperations.MouseEvent(MouseOperations.MouseEventFlags.RightUp);
-        }
-
-        private static void SetCursor(int x, int y)
-        {
-            var factorWidth = SystemParameters.PrimaryScreenWidth/ Application.Current.MainWindow.Width;
-            var factorHeight = SystemParameters.PrimaryScreenHeight/ Application.Current.MainWindow.Height;
-
-            var xPos = x*factorWidth;
-            var yPos = y*factorHeight;
-
-            var factor = MouseSpeed / 100 * 4;
-
-            SetCursorPos((int) (xPos * factor), (int) (yPos * factor));
         }
 
         private void InitLongPress()
@@ -586,6 +631,43 @@ namespace KinectMouseClickPrototype
             var handler = LongClicked;
             if (handler != null)
                 handler(this, args);
+        }
+
+      
+
+        #endregion
+
+        #region sockets
+
+        static List<IWebSocketConnection> _sockets;
+        static bool _initialized = false;
+        private static void InitializeSockets()
+        {
+            _sockets = new List<IWebSocketConnection>();
+
+            var server = new WebSocketServer("ws://localhost:8181");
+
+            server.Start(socket =>
+            {
+                socket.OnOpen = () =>
+                {
+                    Console.WriteLine("Connected to " + socket.ConnectionInfo.ClientIpAddress);
+                    _sockets.Add(socket);
+                };
+                socket.OnClose = () =>
+                {
+                    Console.WriteLine("Disconnected from " + socket.ConnectionInfo.ClientIpAddress);
+                    _sockets.Remove(socket);
+                };
+                socket.OnMessage = message =>
+                {
+                    Console.WriteLine(message);
+                };
+            });
+
+            _initialized = true;
+
+            //Console.ReadLine();
         }
 
         #endregion
