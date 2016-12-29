@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Fleck;
@@ -18,28 +19,10 @@ namespace KinectMouseClickPrototype
 {
     public partial class MainWindow :  INotifyPropertyChanged
     {
-
-//        topright:
-//X = 347
-//Y= 143
-//Z = 2372
-
-//bottomleft:
-//X = 226
-//Y = 227
-//Z = 2132
-
-//347 - 226 = 121 cm width
-//84 cm height
-
-//widthFactor 1920 / 121 = 15.87
-//heightFactor = 1080 / 84 = 12.86
-
-//(276-226) * 16 = 793,5px 
-//(measuredx-zerox) * xrealuation - 
-
         [DllImport("User32.dll")]
         private static extern bool SetCursorPos(int X, int Y);
+
+        public const int MouseSensitivity = 1;
 
         #region screen configuration
 
@@ -90,8 +73,6 @@ namespace KinectMouseClickPrototype
             get { return ScreenBottomRight.Y - ScreenTopLeft.Y; }
         }
 
-       
-
         #endregion
 
         #region constants
@@ -103,6 +84,10 @@ namespace KinectMouseClickPrototype
         #region private properties
 
         //Peter
+
+        private readonly List<double> avgX = new List<double>();
+        private readonly List<double> avgY = new List<double>();
+
         private bool _isLeftHeldDown;
 
         private bool _isRightHeldDown;
@@ -129,18 +114,10 @@ namespace KinectMouseClickPrototype
 
         private readonly Brush _handOpenBrush = new SolidColorBrush(Color.FromArgb(128, 0, 255, 0)); // Brush used for drawing hands that are currently tracked as opened
 
-        private readonly Brush _handLassoBrush = new SolidColorBrush(Color.FromArgb(128, 0, 0, 255)); // Brush used for drawing hands that are currently tracked as in lasso (pointer) position
-
-        private readonly Brush _trackedJointBrush = new SolidColorBrush(Color.FromArgb(255, 68, 192, 68)); // Brush used for drawing joints that are currently tracked
-       
-        private readonly Brush _inferredJointBrush = Brushes.Yellow; // Brush used for drawing joints that are currently inferred
-
-        private readonly Pen _inferredBonePen = new Pen(Brushes.Gray, 1); // Pen used for drawing bones that are currently inferred
-
         private readonly DrawingGroup _drawingGroup; // Drawing group for body rendering output
 
         private readonly DrawingImage _imageSource; // Drawing image that we will display
-
+        
         private ImageSource _imageSourceDepth
         {
             get
@@ -221,7 +198,14 @@ namespace KinectMouseClickPrototype
 
         public MainWindow()
         {
-            LongClicked += (sender, args) => MouseOperations.MouseEvent(MouseOperations.MouseEventFlags.RightDown);
+
+
+            LongClicked += (sender, args) =>
+            {
+               // MessageBox.Show("Long clicked!!");
+                RightDown();
+                RightRelease();
+            };
 
             _kinectSensor = KinectSensor.GetDefault(); // one sensor is currently supported
             _coordinateMapper = _kinectSensor.CoordinateMapper;   // get the coordinate mapper
@@ -264,16 +248,27 @@ namespace KinectMouseClickPrototype
 
         #region handlers
 
+        private void ShowButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            Mouse.OverrideCursor = Cursors.None;
+            ViewboxBrowser.Visibility = Visibility.Visible;
+            Browser.Navigate("http://localhost:11636/index.html");
+            //Browser.Navigate("http://games.cdn.famobi.com/html5games/b/beach-sudoku/v070/?fg_domain=play.famobi.com&fg_aid=A1000-1&fg_uid=613dfd59-de2e-4112-8c6e-7cc0d1872d09&fg_pid=4638e320-4444-4514-81c4-d80a8c662371&fg_beat=622#_ga=1.24136378.1803192420.1483019713");
+        }
+
+        private void CloseButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            Application.Current.Shutdown();
+        }
+
         private void FinishButton_Click(object sender, RoutedEventArgs e)
         {
             if (!_calibrating)
             {
                 ButtonText = "Calibrating topleft";
-                var messageBoxResult = MessageBox.Show("Touch top-left", string.Empty, MessageBoxButton.YesNo);
-                if (messageBoxResult == MessageBoxResult.Yes)
+                var messageBoxResult = MessageBox.Show("Point top-left");
+                if (messageBoxResult == MessageBoxResult.OK)
                     _calibrating = _calibratingTopLeft = true;
-                else
-                    Application.Current.Shutdown();
             }
             else
             {
@@ -282,11 +277,9 @@ namespace KinectMouseClickPrototype
                     ButtonText = "Calibrating bottomright";
                     _calibratingTopLeft = false;
 
-                    var messageBoxResult = MessageBox.Show("Touch bottom-right", string.Empty, MessageBoxButton.YesNo);
-                    if (messageBoxResult == MessageBoxResult.Yes)
+                    var messageBoxResult = MessageBox.Show("Point bottom-right");
+                    if (messageBoxResult == MessageBoxResult.OK)
                         _calibratingBottomRight = true;
-                    else
-                        Application.Current.Shutdown();
                 }
                 else if (_calibratingBottomRight)
                 {
@@ -295,6 +288,7 @@ namespace KinectMouseClickPrototype
                     btn.Visibility = Visibility.Hidden;
                     _calibrating = false;
                     _doneCalibrating = true;
+                    ShowButton_OnClick(null, null);
                 }
             }
         }
@@ -375,8 +369,10 @@ namespace KinectMouseClickPrototype
                                 jointPoints[jointType] = new DepthPoint(depthSpacePoint.X, depthSpacePoint.Y, (position.Z * 1000));
                             }
 
-                            DrawHand(HandType.Left, jointPoints[JointType.HandTipLeft], dc);
-                            DrawHand(HandType.Right, jointPoints[JointType.HandTipRight], dc);
+                            var activeHand = ActiveHand(jointPoints[JointType.HandTipLeft],
+                                jointPoints[JointType.HandTipRight]);
+                            DrawHand(activeHand, HandType.Left, body.HandLeftState, jointPoints[JointType.HandTipLeft], dc);
+                            DrawHand(activeHand, HandType.Right, body.HandRightState, jointPoints[JointType.HandTipRight], dc);
                         }
                     }
 
@@ -384,6 +380,13 @@ namespace KinectMouseClickPrototype
                     _drawingGroup.ClipGeometry = new RectangleGeometry(new Rect(0.0, 0.0, _displayWidth, _displayHeight));
                 }
             }
+        }
+
+        private HandType ActiveHand(DepthPoint leftHand, DepthPoint rightHand)
+        {
+            if (leftHand.Z > rightHand.Z)
+                return HandType.Left;
+            return HandType.Right;
         }
 
         /// <summary>
@@ -473,10 +476,7 @@ namespace KinectMouseClickPrototype
 
         #region methods
 
-        private readonly List<double> avgX = new List<double>();
-        private readonly List<double> avgY = new List<double>();
-
-        private void DrawHand(HandType handType, DepthPoint handPosition, DrawingContext drawingContext)
+        private void DrawHand(HandType activeHand, HandType handType, HandState handState, DepthPoint handPosition, DrawingContext drawingContext)
         {
             var xInMillimeters = handPosition.X;
             var yInMillimeters = handPosition.Y;
@@ -499,23 +499,22 @@ namespace KinectMouseClickPrototype
                 drawingContext.DrawEllipse(_handOpenBrush, null, handPosition.GetPoint(), HandSize, HandSize);
             else if (_doneCalibrating)
             {
-                if (handType == HandType.Right)
+                if (handType == activeHand)
                 {
                     var x = PixelHelper.ToPixelsX(xInMillimeters, this);
                     var y = PixelHelper.ToPixelsY(yInMillimeters, this);
 
-                    tbTop.Text = "X: " + Convert.ToInt32(xInMillimeters) + ", Y: " + 
-                        Convert.ToInt32(yInMillimeters) + ", Z: " + Convert.ToInt32(handPosition.Z);
+                    drawingContext.DrawEllipse(_handOpenBrush, null, handPosition.GetPoint(), HandSize, HandSize);
 
                     Task.Run(() =>
                     {
                         avgX.Add(x);
                         avgY.Add(y);
 
-                        if (avgX.Count > 3)
+                        if (avgX.Count > MouseSensitivity)
                         {
-                           avgX.RemoveAt(0);
-                           avgY.RemoveAt(0);
+                            avgX.RemoveAt(0);
+                            avgY.RemoveAt(0);
                         }
 
                         var xFinal = avgX.Average();
@@ -524,12 +523,10 @@ namespace KinectMouseClickPrototype
                         Dispatcher.BeginInvoke(new Action(() => SetCursorPos(Convert.ToInt32(xFinal), Convert.ToInt32(yFinal))));
                     });
 
-                    drawingContext.DrawEllipse(handPosition.Z >= WallZ - 25 ? _handClosedBrush : _handOpenBrush, null, handPosition.GetPoint(), HandSize, HandSize);
-
-                    //if (handPosition.Z >= WallZ - 25 && handType == HandType.Right)
-                    //    LeftDown();
-                    //else if (handType == HandType.Right)
-                    //    LeftRelease();
+                    if (handState == HandState.Closed)
+                        LeftDown();
+                    else
+                        LeftRelease();
                 }
                 else
                     drawingContext.DrawEllipse(_handOpenBrush, null, handPosition.GetPoint(), HandSize, HandSize);
@@ -587,7 +584,7 @@ namespace KinectMouseClickPrototype
         private void LeftDown()
         {
             _isLeftHeldDown = true;
-
+            InitLongPress();
             MouseOperations.MouseEvent(MouseOperations.MouseEventFlags.LeftDown);
         }
 
@@ -671,5 +668,7 @@ namespace KinectMouseClickPrototype
         }
 
         #endregion
+
+     
     }
 }
